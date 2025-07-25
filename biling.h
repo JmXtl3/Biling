@@ -19,9 +19,12 @@
 #include <ctime>
 #include <mysql/mysql.h>
 #include <map>
+#include <mutex>
 #include <algorithm>
 #include <iconv.h>
 #include <arpa/inet.h>
+#include <thread>
+#include <chrono>
 
 // 配置结构体
 struct ServerConfig {
@@ -67,5 +70,5 @@ void writeLog(const std::string& message);
 std::string ansiToUtf8(const std::string& ansiStr);
 int BilingLogin(std::string accountText, std::string passwordText);
 void BilingLeave(std::string accountText,int accountstate); // 更新账号状态
-
+void logAllClientDurations();   // 定时线程：每5分钟写一次所有活跃连接的时长
 #endif // BILLING_H

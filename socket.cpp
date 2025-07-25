@@ -4,12 +4,54 @@
 // 全局变量，用于存储事件回调函数
 static EventCallback eventCallback = nullptr;
 
+// 全局变量：保存活跃连接的起始时间
+std::map<int, std::chrono::steady_clock::time_point> g_clientStartTimes;
+std::mutex g_clientTimesMutex;
+
 // 设置事件回调函数
 void setEventCallback(EventCallback callback) {
     eventCallback = callback;
 }
 
-// 事件处理函数：接受客户端连接并处理数据
+// 单独处理每个客户端的函数
+void handleClient(int clientSocket, sockaddr_in clientAddress) {
+    auto startTime = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(g_clientTimesMutex);
+        g_clientStartTimes[clientSocket] = startTime;
+    }
+
+    char clientIP[INET_ADDRSTRLEN] = {0};
+    inet_ntop(AF_INET, &(clientAddress.sin_addr), clientIP, INET_ADDRSTRLEN);
+    writeLog(std::string("新客户端连接: ") + clientIP + ":" + std::to_string(ntohs(clientAddress.sin_port)));
+    std::vector<uint8_t> packetBuffer;
+    const std::vector<uint8_t> PACKET_HEADER = {85, 170};
+    const std::vector<uint8_t> PACKET_TAIL = {170, 85};
+
+    while (true) {
+        uint8_t byte = 0;
+        int bytesRead = read(clientSocket, &byte, 1);
+        if (bytesRead <= 0) {
+            std::cerr << "客户端断开连接或读取错误" << std::endl;
+            break;
+        }
+        packetBuffer.push_back(byte);
+
+        if (packetBuffer.size() >= 2 &&
+            packetBuffer[packetBuffer.size() - 2] == PACKET_TAIL[0] &&
+            packetBuffer[packetBuffer.size() - 1] == PACKET_TAIL[1]) {
+            if (eventCallback) {
+                eventCallback(clientSocket, packetBuffer);
+            }
+            packetBuffer.clear();
+        }
+    }
+    close(clientSocket);
+    std::lock_guard<std::mutex> lock(g_clientTimesMutex);
+    g_clientStartTimes.erase(clientSocket);
+}
+
+// 主事件循环，负责接收连接
 void handleEvents(int server_fd) {
     while (true) {
         struct sockaddr_in clientAddress;
@@ -19,45 +61,24 @@ void handleEvents(int server_fd) {
             perror("accept failed");
             continue;
         }
+        // 每个连接新建一个线程处理
+        std::thread clientThread(handleClient, clientSocket, clientAddress);
+        clientThread.detach(); // 让线程后台运行，自动回收资源
+    }
+}
 
-        // 缓存数据
-        std::vector<uint8_t> packetBuffer;
-        const std::vector<uint8_t> PACKET_HEADER = {85, 170}; // 封包头
-        const std::vector<uint8_t> PACKET_TAIL = {170, 85};  // 封包尾
+// 定时线程：每5分钟写一次所有活跃连接的时长
+void logAllClientDurations() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::minutes(5));
+        auto now = std::chrono::steady_clock::now();
 
-        while (true) {
-            uint8_t byte = 0;
-            int bytesRead = read(clientSocket, &byte, 1);
-            if (bytesRead <= 0) {
-                std::cerr << "客户端断开连接或读取错误" << std::endl;
-                break;
-            }
-
-            packetBuffer.push_back(byte);
-
-            // 查找封包头
-            if (packetBuffer.size() >= 2 &&
-                packetBuffer[0] == PACKET_HEADER[0] &&
-                packetBuffer[1] == PACKET_HEADER[1]) {
-                //packetBuffer.erase(packetBuffer.begin(), packetBuffer.begin() + 2); // 移除封包头
-            }
-
-            // 查找封包尾
-            if (packetBuffer.size() >= 2 &&
-                packetBuffer[packetBuffer.size() - 2] == PACKET_TAIL[0] &&
-                packetBuffer[packetBuffer.size() - 1] == PACKET_TAIL[1]) {
-                //packetBuffer.resize(packetBuffer.size() - 2); // 移除封包尾
-
-                // 触发事件回调
-                if (eventCallback) {
-                    eventCallback(clientSocket, packetBuffer);
-                }
-
-                packetBuffer.clear(); // 清空缓冲区，准备处理下一个封包
-            }
+        std::lock_guard<std::mutex> lock(g_clientTimesMutex);
+        for (const auto& kv : g_clientStartTimes) {
+            int clientSocket = kv.first;
+            auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - kv.second).count();
+            writeLog("客户端fd=" + std::to_string(clientSocket) + " 已连接时长: " + std::to_string(duration) + " 秒");
         }
-
-        close(clientSocket); // 关闭客户端连接
     }
 }
 

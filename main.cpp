@@ -22,7 +22,8 @@ int main()
     {
         return -1;
     }
-
+    //启动定时线程
+    std::thread(logAllClientDurations).detach();
     // 设置事件回调
     setEventCallback(onMessageReceived);
 
