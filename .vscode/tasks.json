@@ -1,0 +1,37 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build 验证",
+            "type": "shell",
+            "command": "g++",
+            "args": [
+                "-g",
+                "-Wall",
+                "-std=c++11",
+                "-o",
+				"${workspaceFolder}/biling",
+                "${workspaceFolder}/billing.cpp",
+                "${workspaceFolder}/socket.cpp",
+				"${workspaceFolder}/sql.cpp",
+				"${workspaceFolder}/config.cpp",
+				"${workspaceFolder}/main.cpp",
+
+
+
+				"-lmysqlclient"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$gcc",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}
